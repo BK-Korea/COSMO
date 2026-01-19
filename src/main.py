@@ -154,8 +154,7 @@ def clear_cache(
 def main():
     """Main entry point"""
     try:
-        # Validate configuration on startup
-        settings.validate()
+        # Configuration is auto-validated by Pydantic on initialization
         app()
     except ValueError as e:
         console.print(f"[red]Configuration Error: {str(e)}[/red]")
