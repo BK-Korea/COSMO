@@ -29,45 +29,62 @@ class FinancialQAGraph:
         """Node: Resolve company name or ticker to ticker symbol using LLM"""
         user_input = state.get("original_input") or state["ticker"]
 
-        # Check if it looks like a ticker (short, uppercase, no spaces)
-        if len(user_input) <= 5 and user_input.isupper() and ' ' not in user_input:
+        # Check if it looks like a valid ticker (2-5 chars, uppercase, no spaces)
+        if 2 <= len(user_input) <= 5 and user_input.isupper() and ' ' not in user_input:
             # Likely already a ticker
             return {"ticker": user_input}
 
         try:
             # Use LLM to resolve company name to ticker
-            resolve_prompt = f"""You are a financial ticker symbol resolver.
-Given a company name or partial name, return ONLY the stock ticker symbol (e.g., AAPL, TSLA, NVDA).
+            resolve_prompt = f"""You are a US stock market ticker symbol resolver.
 
 User input: "{user_input}"
 
-Rules:
-- If it's clearly a company name, return the ticker symbol
-- If it's already a ticker, return it as-is
-- Return ONLY the ticker symbol, nothing else
-- Examples:
-  - "Apple" -> AAPL
-  - "Tesla" -> TSLA
-  - "Archer Aviation" -> ACHR
-  - "Microsoft Corporation" -> MSFT
-  - "GOOGL" -> GOOGL
+Task: Convert this to the correct NYSE/NASDAQ ticker symbol.
 
-Ticker symbol:"""
+Important rules:
+- Ticker symbols are typically 1-5 uppercase letters (e.g., AAPL, TSLA, MSFT, GOOGL)
+- If given a partial company name, find the most well-known matching company
+- Return ONLY the ticker symbol, nothing else (no company name, no explanation)
+
+Examples:
+Input: "Apple" → Output: AAPL
+Input: "apple inc" → Output: AAPL
+Input: "Tesla" → Output: TSLA
+Input: "tesla motors" → Output: TSLA
+Input: "Microsoft" → Output: MSFT
+Input: "microsoft corporation" → Output: MSFT
+Input: "Archer Aviation" → Output: ACHR
+Input: "archer" → Output: ACHR
+Input: "nvidia" → Output: NVDA
+Input: "amazon" → Output: AMZN
+Input: "meta" → Output: META
+Input: "facebook" → Output: META
+Input: "GOOGL" → Output: GOOGL
+Input: "tsla" → Output: TSLA
+
+Now resolve this input: "{user_input}"
+
+Ticker:"""
 
             ticker_response = self.llm_client.simple_query(resolve_prompt).strip().upper()
 
-            # Extract ticker (remove any extra text)
+            # Extract ticker (remove any extra text, keep only alphanumeric)
+            # Split by whitespace or newline, take first token
             ticker = ticker_response.split()[0] if ticker_response else user_input.upper()
-
-            # Remove any non-alphanumeric characters
             ticker = ''.join(c for c in ticker if c.isalnum())
+
+            # Validate ticker length (reasonable range)
+            if not (1 <= len(ticker) <= 5):
+                # Fallback to uppercase input
+                ticker = user_input.upper().replace(" ", "")[:5]
 
             return {"ticker": ticker}
 
         except Exception as e:
             # Fallback: use input as-is
             return {
-                "ticker": user_input.upper().replace(" ", ""),
+                "ticker": user_input.upper().replace(" ", "")[:5],
                 "error": f"Ticker resolution warning: {str(e)}"
             }
 
