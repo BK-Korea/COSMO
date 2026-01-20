@@ -22,6 +22,8 @@ class FinancialQAGraph:
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
         )
+        # Cache for indexed tickers to avoid re-indexing
+        self.indexed_tickers = set()
 
     def fetch_ticker_data(self, state: FinancialQAState) -> Dict[str, Any]:
         """Node: Fetch ticker data from Yahoo Finance"""
@@ -50,6 +52,11 @@ class FinancialQAGraph:
             return {}
 
         ticker = state["ticker"]
+
+        # Skip if already indexed
+        if ticker in self.indexed_tickers:
+            return {}
+
         ticker_info = state.get("ticker_info", {})
         news = state.get("news", [])
 
@@ -96,6 +103,8 @@ Summary: {article.get('summary', 'N/A')}
             if documents:
                 split_docs = self.text_splitter.split_documents(documents)
                 self.vector_store.add_documents(split_docs)
+                # Mark as indexed
+                self.indexed_tickers.add(ticker)
 
             return {}
         except Exception as e:
@@ -217,39 +226,78 @@ FEEDBACK: [your feedback]
         else:
             return "regenerate"
 
-    def build_graph(self) -> StateGraph:
-        """Build the LangGraph workflow"""
+    def build_graph(self, skip_fetch_index: bool = False, enable_evaluation: bool = False) -> StateGraph:
+        """Build the LangGraph workflow
+
+        Args:
+            skip_fetch_index: If True, skip fetch_data and index_data nodes (for cached queries)
+            enable_evaluation: If True, include quality evaluation step
+        """
         workflow = StateGraph(FinancialQAState)
 
-        # Add nodes
-        workflow.add_node("fetch_data", self.fetch_ticker_data)
-        workflow.add_node("index_data", self.index_ticker_data)
-        workflow.add_node("retrieve", self.retrieve_context)
-        workflow.add_node("generate", self.generate_response)
-        workflow.add_node("evaluate", self.evaluate_quality)
+        if skip_fetch_index:
+            # Fast path: only retrieve and generate
+            workflow.add_node("retrieve", self.retrieve_context)
+            workflow.add_node("generate", self.generate_response)
+            workflow.set_entry_point("retrieve")
+            workflow.add_edge("retrieve", "generate")
 
-        # Define edges
-        workflow.set_entry_point("fetch_data")
-        workflow.add_edge("fetch_data", "index_data")
-        workflow.add_edge("index_data", "retrieve")
-        workflow.add_edge("retrieve", "generate")
-        workflow.add_edge("generate", "evaluate")
+            if enable_evaluation:
+                workflow.add_node("evaluate", self.evaluate_quality)
+                workflow.add_edge("generate", "evaluate")
+                workflow.add_conditional_edges(
+                    "evaluate",
+                    self.should_return_response,
+                    {
+                        "end": END,
+                        "regenerate": END,
+                    },
+                )
+            else:
+                workflow.add_edge("generate", END)
+        else:
+            # Full path: fetch, index, retrieve, generate
+            workflow.add_node("fetch_data", self.fetch_ticker_data)
+            workflow.add_node("index_data", self.index_ticker_data)
+            workflow.add_node("retrieve", self.retrieve_context)
+            workflow.add_node("generate", self.generate_response)
 
-        # Conditional edge based on quality
-        workflow.add_conditional_edges(
-            "evaluate",
-            self.should_return_response,
-            {
-                "end": END,
-                "regenerate": END,  # For now, just end (could regenerate)
-            },
-        )
+            workflow.set_entry_point("fetch_data")
+            workflow.add_edge("fetch_data", "index_data")
+            workflow.add_edge("index_data", "retrieve")
+            workflow.add_edge("retrieve", "generate")
+
+            if enable_evaluation:
+                workflow.add_node("evaluate", self.evaluate_quality)
+                workflow.add_edge("generate", "evaluate")
+                workflow.add_conditional_edges(
+                    "evaluate",
+                    self.should_return_response,
+                    {
+                        "end": END,
+                        "regenerate": END,
+                    },
+                )
+            else:
+                workflow.add_edge("generate", END)
 
         return workflow.compile()
 
-    def run(self, ticker: str, query: str) -> Dict[str, Any]:
-        """Run the workflow"""
-        graph = self.build_graph()
+    def run(self, ticker: str, query: str, enable_evaluation: bool = False) -> Dict[str, Any]:
+        """Run the workflow
+
+        Args:
+            ticker: Stock ticker symbol
+            query: User question
+            enable_evaluation: If True, enable quality evaluation (adds ~2-5s)
+        """
+        # Check if ticker is already indexed
+        skip_fetch_index = ticker in self.indexed_tickers
+
+        graph = self.build_graph(
+            skip_fetch_index=skip_fetch_index,
+            enable_evaluation=enable_evaluation
+        )
 
         initial_state: FinancialQAState = {
             "ticker": ticker,
@@ -268,6 +316,14 @@ FEEDBACK: [your feedback]
 
         result = graph.invoke(initial_state)
         return result
+
+    def is_ticker_cached(self, ticker: str) -> bool:
+        """Check if ticker data is already cached"""
+        return ticker in self.indexed_tickers
+
+    def clear_cache(self):
+        """Clear the ticker cache"""
+        self.indexed_tickers.clear()
 
 
 def create_qa_graph() -> FinancialQAGraph:

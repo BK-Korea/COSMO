@@ -82,14 +82,14 @@ def run_interactive():
 
         while True:
             try:
-                user_question = typer.prompt(f"\n💬 Question #{question_count + 1}")
+                question_count += 1
+                user_question = typer.prompt(f"\n💬 Question #{question_count}")
 
                 if user_question.lower() in ["exit", "quit", "q"]:
                     console.print("\n[yellow]Goodbye! 👋[/yellow]")
                     break
 
-                question_count += 1
-                _process_question(qa_graph, ticker, user_question)
+                _process_question(qa_graph, ticker, user_question, question_count)
 
             except KeyboardInterrupt:
                 console.print("\n\n[yellow]Session interrupted. Goodbye! 👋[/yellow]")
@@ -108,17 +108,22 @@ def run_interactive():
         raise typer.Exit(1)
 
 
-def _process_question(qa_graph, ticker: str, question: str):
+def _process_question(qa_graph, ticker: str, question: str, question_count: int):
     """Process a single question"""
-    console.print(f"\n[dim]Processing question...[/dim]")
+    ticker_upper = ticker.upper()
+    is_cached = qa_graph.is_ticker_cached(ticker_upper)
+
+    if question_count == 1 and not is_cached:
+        console.print(f"\n[dim]Fetching and indexing data for {ticker_upper}... (first query may take 5-15s)[/dim]")
+    else:
+        console.print(f"\n[dim]Processing question... (cached, ~2-5s)[/dim]")
 
     try:
-        # Run the workflow
-        result = qa_graph.run(ticker=ticker.upper(), query=question)
+        # Run the workflow (evaluation disabled by default for speed)
+        result = qa_graph.run(ticker=ticker_upper, query=question, enable_evaluation=False)
 
         # Display response
         response = result.get("response", "No response generated")
-        quality_score = result.get("quality_score", 0.0)
 
         console.print("\n" + "="*80)
         console.print(Panel(
@@ -126,11 +131,6 @@ def _process_question(qa_graph, ticker: str, question: str):
             title="[bold green]Response[/bold green]",
             border_style="green",
         ))
-
-        # Display quality info if available
-        if quality_score:
-            quality_color = "green" if quality_score >= settings.quality_threshold else "yellow"
-            console.print(f"\n[dim]Quality Score: [{quality_color}]{quality_score:.1f}/10[/{quality_color}][/dim]")
 
     except Exception as e:
         console.print(f"\n[red]Error processing question: {str(e)}[/red]")
