@@ -1,9 +1,10 @@
-"""COSMO - Yahoo Finance AI Assistant CLI (following NOVA pattern)"""
+"""COSMO - Yahoo Finance AI Assistant CLI (NOVA-style)"""
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.markdown import Markdown
+from rich.text import Text
 from typing import Optional
 
 from src.agents.graph import create_qa_graph
@@ -13,72 +14,122 @@ app = typer.Typer(
     name="cosmo",
     help="COSMO - AI-powered Yahoo Finance assistant for stock market analysis",
     add_completion=False,
+    invoke_without_command=True,
 )
 console = Console()
 
+COSMO_BANNER = """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║   ██████╗ ██████╗ ███████╗███╗   ███╗ ██████╗                ║
+║  ██╔════╝██╔═══██╗██╔════╝████╗ ████║██╔═══██╗               ║
+║  ██║     ██║   ██║███████╗██╔████╔██║██║   ██║               ║
+║  ██║     ██║   ██║╚════██║██║╚██╔╝██║██║   ██║               ║
+║  ╚██████╗╚██████╔╝███████║██║ ╚═╝ ██║╚██████╔╝               ║
+║   ╚═════╝ ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝                ║
+║                                                               ║
+║        Conversational Operational Stock Market Oracle        ║
+║           AI-Powered Yahoo Finance Assistant                 ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+"""
 
-@app.command()
-def query(
-    ticker: str = typer.Argument(..., help="Stock ticker symbol (e.g., AAPL, TSLA)"),
-    question: Optional[str] = typer.Option(
-        None,
-        "--question", "-q",
-        help="Question to ask about the ticker"
-    ),
-    interactive: bool = typer.Option(
-        True,
-        "--interactive/--no-interactive", "-i/-n",
-        help="Enable interactive mode for multiple questions"
+
+def show_banner():
+    """Display COSMO banner"""
+    console.print(COSMO_BANNER, style="bold cyan")
+    console.print(
+        "[dim]Powered by GLM-4.7 & Yahoo Finance API[/dim]\n",
+        justify="center"
+    )
+
+
+@app.callback(invoke_without_command=True)
+def main_interactive(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version", "-v",
+        help="Show version and exit"
     ),
 ):
     """
-    Query financial information about a stock ticker using AI
+    COSMO - Yahoo Finance AI Assistant
 
-    Examples:
-        cosmo query AAPL -q "What's the current stock price?"
-        cosmo query TSLA --interactive
+    Run 'cosmo' to enter interactive mode, or use subcommands:
+    - cosmo info: Show system configuration
+    - cosmo clear-cache: Clear vector store cache
     """
-    console.print(Panel.fit(
-        f"[bold cyan]COSMO Financial Assistant[/bold cyan]\n"
-        f"Ticker: [yellow]{ticker.upper()}[/yellow]",
-        border_style="cyan"
-    ))
+    if version:
+        console.print("[cyan]COSMO v0.1.0[/cyan]")
+        raise typer.Exit()
 
-    # Initialize the graph
-    console.print("\n[dim]Initializing AI assistant...[/dim]")
-    qa_graph = create_qa_graph()
+    # If a subcommand is invoked, don't run interactive mode
+    if ctx.invoked_subcommand is not None:
+        return
 
-    # Fetch and index initial data
-    console.print(f"[dim]Fetching data for {ticker.upper()}...[/dim]")
+    # Interactive mode (NOVA-style)
+    show_banner()
 
-    if question and not interactive:
-        # Single question mode
-        _process_question(qa_graph, ticker, question)
-    else:
-        # Interactive mode
-        console.print("\n[bold green]Interactive mode enabled.[/bold green]")
-        console.print("[dim]Type 'exit' or 'quit' to end the session.[/dim]\n")
+    try:
+        # Step 1: Get ticker symbol
+        console.print(Panel.fit(
+            "[bold yellow]Step 1: Stock Selection[/bold yellow]",
+            border_style="yellow"
+        ))
 
-        # Process initial question if provided
-        if question:
-            _process_question(qa_graph, ticker, question)
+        ticker = typer.prompt(
+            "\n🏢 Enter stock ticker symbol (e.g., AAPL, TSLA, NVDA)"
+        ).strip().upper()
 
-        # Interactive loop
+        if not ticker:
+            console.print("[red]Invalid ticker. Exiting.[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"\n✓ Selected: [bold green]{ticker}[/bold green]")
+
+        # Initialize the graph
+        console.print("\n[dim]Initializing AI assistant...[/dim]")
+        qa_graph = create_qa_graph()
+
+        # Fetch initial data
+        console.print(f"[dim]Fetching data for {ticker}...[/dim]")
+
+        # Step 2: Q&A Loop
+        console.print(Panel.fit(
+            "[bold yellow]Step 2: Ask Questions[/bold yellow]\n"
+            "[dim]Type your questions about the stock. Enter 'exit' or 'quit' to end.[/dim]",
+            border_style="yellow"
+        ))
+
+        question_count = 0
+
         while True:
             try:
-                user_question = typer.prompt("\n💬 Your question")
+                user_question = typer.prompt(f"\n💬 Question #{question_count + 1}")
 
                 if user_question.lower() in ["exit", "quit", "q"]:
                     console.print("\n[yellow]Goodbye! 👋[/yellow]")
                     break
 
+                question_count += 1
                 _process_question(qa_graph, ticker, user_question)
 
             except KeyboardInterrupt:
                 console.print("\n\n[yellow]Session interrupted. Goodbye! 👋[/yellow]")
                 break
+            except EOFError:
+                console.print("\n\n[yellow]Session ended. Goodbye! 👋[/yellow]")
+                break
             except Exception as e:
                 console.print(f"\n[red]Error: {str(e)}[/red]")
+
+    except KeyboardInterrupt:
+        console.print("\n\n[yellow]Session cancelled. Goodbye! 👋[/yellow]")
+        raise typer.Exit(0)
+    except Exception as e:
+        console.print(f"\n[red]Error: {str(e)}[/red]")
+        raise typer.Exit(1)
 
 
 def _process_question(qa_graph, ticker: str, question: str):

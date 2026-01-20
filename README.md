@@ -97,57 +97,113 @@ EMBEDDING_PROVIDER=openai
 
 ## Usage
 
-### Interactive Mode (Default)
+### Interactive Mode (NOVA-style) - Default
+
+Simply run `cosmo` to enter interactive mode:
 
 ```bash
-python -m src.main query AAPL
+cosmo
 ```
 
-This starts an interactive session where you can ask multiple questions:
-
-```
-💬 Your question: What's the current stock price?
-💬 Your question: How has the stock performed this month?
-💬 Your question: exit
-```
-
-### Single Question Mode
-
+Or if not installed globally:
 ```bash
-python -m src.main query TSLA -q "What are the latest news about Tesla?"
+python -m src.main
+```
+
+This will display the COSMO banner and guide you through:
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║   ██████╗ ██████╗ ███████╗███╗   ███╗ ██████╗                ║
+║  ██╔════╝██╔═══██╗██╔════╝████╗ ████║██╔═══██╗               ║
+║  ██║     ██║   ██║███████╗██╔████╔██║██║   ██║               ║
+║  ██║     ██║   ██║╚════██║██║╚██╔╝██║██║   ██║               ║
+║  ╚██████╗╚██████╔╝███████║██║ ╚═╝ ██║╚██████╔╝               ║
+║   ╚═════╝ ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝                ║
+║                                                               ║
+║        Conversational Operational Stock Market Oracle        ║
+║           AI-Powered Yahoo Finance Assistant                 ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+         Powered by GLM-4.7 & Yahoo Finance API
+
+┌─ Step 1: Stock Selection ─┐
+🏢 Enter stock ticker symbol (e.g., AAPL, TSLA, NVDA): AAPL
+
+✓ Selected: AAPL
+
+┌─ Step 2: Ask Questions ─┐
+Type your questions about the stock. Enter 'exit' or 'quit' to end.
+
+💬 Question #1: What's the current stock price?
+💬 Question #2: How has the stock performed this month?
+💬 Question #3: exit
 ```
 
 ### View System Information
 
 ```bash
-python -m src.main info
+cosmo info
 ```
 
 ### Clear Vector Store Cache
 
 ```bash
-python -m src.main clear-cache --yes
+cosmo clear-cache --yes
+```
+
+### Version Information
+
+```bash
+cosmo --version
 ```
 
 ## Examples
 
-### Example 1: Stock Price Inquiry
+### Example 1: Full Interactive Session
 ```bash
-python -m src.main query AAPL -q "What's the current price and P/E ratio?"
+$ cosmo
+[COSMO Banner appears]
+
+🏢 Enter stock ticker symbol: AAPL
+✓ Selected: AAPL
+
+💬 Question #1: What's the current price and P/E ratio?
+[AI Response with stock data]
+
+💬 Question #2: Any recent news about Apple?
+[AI Response with news summary]
+
+💬 Question #3: exit
+Goodbye! 👋
 ```
 
-### Example 2: Company Analysis
+### Example 2: Different Stocks
 ```bash
-python -m src.main query NVDA -q "Analyze NVIDIA's recent performance and news"
+$ cosmo
+🏢 Enter stock ticker symbol: NVDA
+✓ Selected: NVDA
+
+💬 Question #1: Analyze NVIDIA's recent performance
+[AI Response]
 ```
 
-### Example 3: Interactive Session
+### Example 3: Quick System Check
 ```bash
-python -m src.main query MSFT
-💬 Your question: What sector is Microsoft in?
-💬 Your question: What's the market cap?
-💬 Your question: Any recent news?
-💬 Your question: exit
+$ cosmo info
+              COSMO Configuration
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Setting            ┃ Value                  ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Chat Model         │ glm-4-flash            │
+│ Embedding Model    │ text-embedding-3-small │
+│ Embedding Provider │ openai                 │
+│ Vector Store       │ chroma                 │
+│ Quality Threshold  │ 8.0/10                 │
+│ Chunk Size         │ 1000                   │
+│ Retrieval Top-K    │ 10                     │
+└────────────────────┴────────────────────────┘
 ```
 
 ## Technical Details
