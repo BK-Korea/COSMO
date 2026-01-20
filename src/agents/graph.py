@@ -45,23 +45,32 @@ Task: Convert this to the correct NYSE/NASDAQ ticker symbol.
 
 Important rules:
 - Ticker symbols are typically 1-5 uppercase letters (e.g., AAPL, TSLA, MSFT, GOOGL)
-- If given a partial company name, find the most well-known matching company
+- If given a partial company name (in any language including Korean), find the most well-known matching company
 - Return ONLY the ticker symbol, nothing else (no company name, no explanation)
 
-Examples:
+Examples (English and Korean):
 Input: "Apple" → Output: AAPL
+Input: "애플" → Output: AAPL
 Input: "apple inc" → Output: AAPL
 Input: "Tesla" → Output: TSLA
+Input: "테슬라" → Output: TSLA
 Input: "tesla motors" → Output: TSLA
 Input: "Microsoft" → Output: MSFT
+Input: "마이크로소프트" → Output: MSFT
 Input: "microsoft corporation" → Output: MSFT
 Input: "Archer Aviation" → Output: ACHR
 Input: "archer" → Output: ACHR
 Input: "nvidia" → Output: NVDA
+Input: "엔비디아" → Output: NVDA
 Input: "amazon" → Output: AMZN
+Input: "아마존" → Output: AMZN
 Input: "meta" → Output: META
+Input: "메타" → Output: META
 Input: "facebook" → Output: META
+Input: "페이스북" → Output: META
 Input: "GOOGL" → Output: GOOGL
+Input: "구글" → Output: GOOGL
+Input: "google" → Output: GOOGL
 Input: "tsla" → Output: TSLA
 
 Now resolve this input: "{user_input}"
@@ -303,26 +312,32 @@ Summary: {article.get('summary', 'N/A')}
     def generate_response(self, state: FinancialQAState) -> Dict[str, Any]:
         """Node: Generate response using LLM"""
         if state.get("error"):
-            return {"response": f"Error: {state['error']}"}
+            return {"response": f"오류: {state['error']}"}
 
         query = state["query"]
         context = state.get("context", "")
         ticker = state["ticker"]
 
-        system_prompt = f"""You are a financial analyst assistant specializing in stock market analysis.
-You have access to recent information about {ticker} including company data and news.
+        system_prompt = f"""당신은 주식 시장 분석을 전문으로 하는 금융 애널리스트 어시스턴트입니다.
+{ticker}에 대한 최신 정보(기업 데이터, 재무제표, 뉴스 등)에 접근할 수 있습니다.
 
-Your task is to answer the user's question based on the provided context.
-Be specific, cite sources when available, and provide actionable insights.
-If the context doesn't contain enough information, say so clearly.
+당신의 임무는 제공된 컨텍스트를 기반으로 사용자의 질문에 답변하는 것입니다.
+
+중요한 지침:
+- **반드시 한국어로 답변하세요**
+- 구체적이고 정확한 숫자와 데이터를 인용하세요
+- 출처가 있다면 명시하세요
+- 경영진이 실행할 수 있는 인사이트를 제공하세요
+- 컨텍스트에 충분한 정보가 없다면 명확히 밝히세요
+- 표와 목록을 활용하여 가독성을 높이세요
 """
 
-        user_prompt = f"""Context:
+        user_prompt = f"""컨텍스트:
 {context}
 
-Question: {query}
+질문: {query}
 
-Please provide a comprehensive answer based on the context above."""
+위 컨텍스트를 기반으로 한국어로 포괄적인 답변을 제공해주세요."""
 
         try:
             response = self.llm_client.simple_query(
@@ -332,7 +347,7 @@ Please provide a comprehensive answer based on the context above."""
 
             return {"response": response}
         except Exception as e:
-            return {"response": f"Error generating response: {str(e)}"}
+            return {"response": f"응답 생성 오류: {str(e)}"}
 
     def evaluate_quality(self, state: FinancialQAState) -> Dict[str, Any]:
         """Node: Evaluate response quality at CEO reporting level (NOVA pattern)"""
@@ -345,22 +360,24 @@ Please provide a comprehensive answer based on the context above."""
         context = state.get("context", "")
 
         # CEO-level quality evaluation
-        evaluation_prompt = f"""You are evaluating a financial analysis report for C-level executives.
+        evaluation_prompt = f"""You are evaluating a Korean-language financial analysis report for C-level executives.
 Assess whether this response meets CEO reporting standards on a scale of 0-10.
 
 Company: {ticker}
 Question: {query}
-Response: {response}
+Response (in Korean): {response}
 
 Available Context:
 {context[:500]}...
 
 Evaluation Criteria for CEO-Level Reports:
-1. **Accuracy** (0-2): Data correctness, no misleading claims
+1. **Accuracy** (0-2): Data correctness, no misleading claims, proper use of financial data
 2. **Completeness** (0-2): Answers the question fully, covers key aspects
-3. **Clarity** (0-2): Clear language, well-structured, no jargon without explanation
+3. **Clarity** (0-2): Clear Korean language, well-structured, professional formatting
 4. **Actionability** (0-2): Provides insights executives can act on
-5. **Professionalism** (0-2): Appropriate tone, proper citations, executive-ready
+5. **Professionalism** (0-2): Appropriate tone for Korean business context, proper citations, executive-ready
+
+IMPORTANT: The response MUST be in Korean. If it's in English, deduct 2 points from PROFESSIONALISM.
 
 Provide detailed evaluation in this exact format:
 SCORE: [total score 0-10]
@@ -369,7 +386,7 @@ COMPLETENESS: [score 0-2]
 CLARITY: [score 0-2]
 ACTIONABILITY: [score 0-2]
 PROFESSIONALISM: [score 0-2]
-FEEDBACK: [specific improvement suggestions if score < {settings.quality_threshold}]
+FEEDBACK: [specific improvement suggestions in Korean if score < {settings.quality_threshold}]
 """
 
         try:
@@ -407,28 +424,31 @@ FEEDBACK: [specific improvement suggestions if score < {settings.quality_thresho
         feedback = state.get("quality_feedback", "")
         regenerate_count = state.get("regenerate_count", 0) + 1
 
-        system_prompt = f"""You are a financial analyst assistant specializing in stock market analysis.
-You have access to recent information about {ticker} including company data and news.
+        system_prompt = f"""당신은 주식 시장 분석을 전문으로 하는 금융 애널리스트 어시스턴트입니다.
+{ticker}에 대한 최신 정보(기업 데이터, 재무제표, 뉴스 등)에 접근할 수 있습니다.
 
-Your task is to answer the user's question based on the provided context.
-This is attempt #{regenerate_count + 1}. Previous attempt was evaluated and found lacking.
+당신의 임무는 제공된 컨텍스트를 기반으로 사용자의 질문에 답변하는 것입니다.
+현재 시도 횟수: #{regenerate_count + 1}. 이전 답변이 평가되었고 개선이 필요합니다.
 
-FEEDBACK FROM PREVIOUS ATTEMPT:
+이전 시도의 피드백:
 {feedback}
 
-IMPORTANT: Address the feedback above and improve your response to meet CEO reporting standards:
-- Be accurate with data
-- Be complete in covering all aspects
-- Be clear and professional
-- Provide actionable insights
+중요 지침:
+- **반드시 한국어로 답변하세요** (이것은 필수입니다!)
+- 위 피드백을 반영하여 CEO 보고 수준으로 답변을 개선하세요
+- 데이터를 정확하게 사용하세요
+- 모든 측면을 완전하게 다루세요
+- 명확하고 전문적인 한국어를 사용하세요
+- 경영진이 실행할 수 있는 인사이트를 제공하세요
+- 표와 목록을 활용하여 가독성을 높이세요
 """
 
-        user_prompt = f"""Context:
+        user_prompt = f"""컨텍스트:
 {context}
 
-Question: {query}
+질문: {query}
 
-Please provide an improved, CEO-level answer based on the context and feedback above."""
+위 컨텍스트와 피드백을 기반으로 개선된 CEO 수준의 한국어 답변을 제공해주세요."""
 
         try:
             response = self.llm_client.simple_query(
@@ -442,7 +462,7 @@ Please provide an improved, CEO-level answer based on the context and feedback a
             }
         except Exception as e:
             return {
-                "response": f"Error generating response: {str(e)}",
+                "response": f"응답 생성 오류: {str(e)}",
                 "regenerate_count": regenerate_count,
             }
 
