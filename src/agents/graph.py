@@ -3,6 +3,7 @@ from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+import pandas as pd
 
 from src.agents.state import FinancialQAState
 from src.yahoo_finance import YahooFinanceService
@@ -98,10 +99,19 @@ Ticker:"""
             historical_data = self.yf_service.get_historical_data(ticker, period="1mo")
             news = self.yf_service.get_news(ticker)
 
+            # Fetch financial statements (income statement, balance sheet, cash flow)
+            try:
+                financials = self.yf_service.get_financials(ticker)
+            except Exception as fin_error:
+                # Financials might not be available for all companies
+                financials = None
+                print(f"Warning: Could not fetch financials: {fin_error}")
+
             return {
                 "ticker_info": ticker_info,
                 "historical_data": historical_data,
                 "news": news,
+                "financials": financials,
                 "error": None,
             }
         except Exception as e:
@@ -122,6 +132,7 @@ Ticker:"""
 
         ticker_info = state.get("ticker_info", {})
         news = state.get("news", [])
+        financials = state.get("financials", {})
 
         try:
             documents = []
@@ -143,6 +154,92 @@ Description: {ticker_info.get('description', 'N/A')}
                         metadata={"ticker": ticker, "type": "company_info"},
                     )
                 )
+
+            # Create documents from financial statements
+            if financials:
+                # Income Statement (Revenue, Expenses, Net Income)
+                income_stmt = financials.get('income_statement')
+                if income_stmt is not None and not income_stmt.empty:
+                    # Get most recent and year-over-year data
+                    financial_text = f"\n=== Income Statement for {ticker} ===\n"
+
+                    for col in income_stmt.columns[:4]:  # Last 4 years
+                        year = col.strftime('%Y') if hasattr(col, 'strftime') else str(col)
+                        financial_text += f"\nYear: {year}\n"
+
+                        # Key metrics from income statement
+                        for row_name in income_stmt.index:
+                            value = income_stmt.loc[row_name, col]
+                            if pd.notna(value):
+                                # Format large numbers
+                                if abs(value) > 1e9:
+                                    formatted = f"${value/1e9:.2f}B"
+                                elif abs(value) > 1e6:
+                                    formatted = f"${value/1e6:.2f}M"
+                                else:
+                                    formatted = f"${value:,.0f}"
+                                financial_text += f"  {row_name}: {formatted}\n"
+
+                    documents.append(
+                        Document(
+                            page_content=financial_text,
+                            metadata={"ticker": ticker, "type": "income_statement"},
+                        )
+                    )
+
+                # Balance Sheet
+                balance_sheet = financials.get('balance_sheet')
+                if balance_sheet is not None and not balance_sheet.empty:
+                    balance_text = f"\n=== Balance Sheet for {ticker} ===\n"
+
+                    for col in balance_sheet.columns[:4]:
+                        year = col.strftime('%Y') if hasattr(col, 'strftime') else str(col)
+                        balance_text += f"\nYear: {year}\n"
+
+                        for row_name in balance_sheet.index:
+                            value = balance_sheet.loc[row_name, col]
+                            if pd.notna(value):
+                                if abs(value) > 1e9:
+                                    formatted = f"${value/1e9:.2f}B"
+                                elif abs(value) > 1e6:
+                                    formatted = f"${value/1e6:.2f}M"
+                                else:
+                                    formatted = f"${value:,.0f}"
+                                balance_text += f"  {row_name}: {formatted}\n"
+
+                    documents.append(
+                        Document(
+                            page_content=balance_text,
+                            metadata={"ticker": ticker, "type": "balance_sheet"},
+                        )
+                    )
+
+                # Cash Flow Statement
+                cash_flow = financials.get('cash_flow')
+                if cash_flow is not None and not cash_flow.empty:
+                    cf_text = f"\n=== Cash Flow Statement for {ticker} ===\n"
+
+                    for col in cash_flow.columns[:4]:
+                        year = col.strftime('%Y') if hasattr(col, 'strftime') else str(col)
+                        cf_text += f"\nYear: {year}\n"
+
+                        for row_name in cash_flow.index:
+                            value = cash_flow.loc[row_name, col]
+                            if pd.notna(value):
+                                if abs(value) > 1e9:
+                                    formatted = f"${value/1e9:.2f}B"
+                                elif abs(value) > 1e6:
+                                    formatted = f"${value/1e6:.2f}M"
+                                else:
+                                    formatted = f"${value:,.0f}"
+                                cf_text += f"  {row_name}: {formatted}\n"
+
+                    documents.append(
+                        Document(
+                            page_content=cf_text,
+                            metadata={"ticker": ticker, "type": "cash_flow"},
+                        )
+                    )
 
             # Create documents from news
             for i, article in enumerate(news[:10]):  # Limit to 10 most recent
