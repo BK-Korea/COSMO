@@ -1,10 +1,10 @@
 """COSMO - Yahoo Finance AI Assistant CLI (NOVA-style)"""
+import sys
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.markdown import Markdown
-from rich.text import Text
 from typing import Optional
 
 from src.agents.graph import create_qa_graph
@@ -14,7 +14,6 @@ app = typer.Typer(
     name="cosmo",
     help="COSMO - AI-powered Yahoo Finance assistant for stock market analysis",
     add_completion=False,
-    invoke_without_command=True,
 )
 console = Console()
 
@@ -44,31 +43,8 @@ def show_banner():
     )
 
 
-@app.callback(invoke_without_command=True)
-def main_interactive(
-    ctx: typer.Context,
-    version: bool = typer.Option(
-        False,
-        "--version", "-v",
-        help="Show version and exit"
-    ),
-):
-    """
-    COSMO - Yahoo Finance AI Assistant
-
-    Run 'cosmo' to enter interactive mode, or use subcommands:
-    - cosmo info: Show system configuration
-    - cosmo clear-cache: Clear vector store cache
-    """
-    if version:
-        console.print("[cyan]COSMO v0.1.0[/cyan]")
-        raise typer.Exit()
-
-    # If a subcommand is invoked, don't run interactive mode
-    if ctx.invoked_subcommand is not None:
-        return
-
-    # Interactive mode (NOVA-style)
+def run_interactive():
+    """Run interactive mode (NOVA-style)"""
     show_banner()
 
     try:
@@ -205,8 +181,17 @@ def clear_cache(
 def main():
     """Main entry point"""
     try:
-        # Configuration is auto-validated by Pydantic on initialization
-        app()
+        # Check if no arguments provided (just running 'cosmo' or 'python -m src.main')
+        # sys.argv[0] is the script name
+        if len(sys.argv) == 1:
+            # No arguments, run interactive mode
+            run_interactive()
+        elif len(sys.argv) == 2 and sys.argv[1] in ['--version', '-v']:
+            # Handle version flag
+            console.print("[cyan]COSMO v0.1.0[/cyan]")
+        else:
+            # Run Typer app for subcommands
+            app()
     except ValueError as e:
         console.print(f"[red]Configuration Error: {str(e)}[/red]")
         console.print("\n[yellow]Please check your .env file and ensure all required API keys are set.[/yellow]")
