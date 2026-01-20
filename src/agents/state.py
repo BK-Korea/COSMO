@@ -7,7 +7,8 @@ class FinancialQAState(TypedDict):
     """State for financial Q&A workflow"""
 
     # User input
-    ticker: str
+    ticker: str  # Resolved ticker symbol
+    original_input: Optional[str]  # Original user input (company name or ticker)
     query: str
 
     # Retrieved data
@@ -22,6 +23,7 @@ class FinancialQAState(TypedDict):
 
     # LLM response
     response: Optional[str]
+    regenerate_count: Optional[int]  # Track regeneration attempts (max 3)
 
     # Quality evaluation
     quality_score: Optional[float]

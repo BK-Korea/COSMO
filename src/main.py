@@ -48,28 +48,26 @@ def run_interactive():
     show_banner()
 
     try:
-        # Step 1: Get ticker symbol
+        # Step 1: Get ticker symbol or company name
         console.print(Panel.fit(
             "[bold yellow]Step 1: Stock Selection[/bold yellow]",
             border_style="yellow"
         ))
 
         ticker = typer.prompt(
-            "\n🏢 Enter stock ticker symbol (e.g., AAPL, TSLA, NVDA)"
-        ).strip().upper()
+            "\n🏢 Enter ticker or company name (e.g., AAPL, Apple, Tesla, Archer Aviation)"
+        ).strip()
 
         if not ticker:
-            console.print("[red]Invalid ticker. Exiting.[/red]")
+            console.print("[red]Invalid input. Exiting.[/red]")
             raise typer.Exit(1)
 
-        console.print(f"\n✓ Selected: [bold green]{ticker}[/bold green]")
+        console.print(f"\n✓ Input: [bold green]{ticker}[/bold green]")
+        console.print("[dim]AI will resolve this to the correct ticker symbol...[/dim]")
 
         # Initialize the graph
-        console.print("\n[dim]Initializing AI assistant...[/dim]")
+        console.print("\n[dim]Initializing AI assistant with RAG pipeline...[/dim]")
         qa_graph = create_qa_graph()
-
-        # Fetch initial data
-        console.print(f"[dim]Fetching data for {ticker}...[/dim]")
 
         # Step 2: Q&A Loop
         console.print(Panel.fit(
@@ -109,28 +107,50 @@ def run_interactive():
 
 
 def _process_question(qa_graph, ticker: str, question: str, question_count: int):
-    """Process a single question"""
-    ticker_upper = ticker.upper()
-    is_cached = qa_graph.is_ticker_cached(ticker_upper)
+    """Process a single question with CEO-level quality evaluation"""
+    # Don't uppercase - let resolver handle it
+    is_cached = qa_graph.is_ticker_cached(ticker.upper())
 
     if question_count == 1 and not is_cached:
-        console.print(f"\n[dim]Fetching and indexing data for {ticker_upper}... (first query may take 5-15s)[/dim]")
+        console.print(f"\n[dim]Resolving ticker and fetching data... (first query may take 10-20s)[/dim]")
     else:
-        console.print(f"\n[dim]Processing question... (cached, ~2-5s)[/dim]")
+        console.print(f"\n[dim]Processing with quality evaluation... (may take 5-15s with regeneration)[/dim]")
 
     try:
-        # Run the workflow (evaluation disabled by default for speed)
-        result = qa_graph.run(ticker=ticker_upper, query=question, enable_evaluation=False)
+        # Run the workflow with CEO-level quality evaluation enabled
+        result = qa_graph.run(ticker=ticker, query=question, enable_evaluation=True)
+
+        # Get response and quality info
+        response = result.get("response", "No response generated")
+        quality_score = result.get("quality_score")
+        quality_feedback = result.get("quality_feedback", "")
+        regenerate_count = result.get("regenerate_count", 0)
+        resolved_ticker = result.get("ticker", ticker)
 
         # Display response
-        response = result.get("response", "No response generated")
-
         console.print("\n" + "="*80)
         console.print(Panel(
             Markdown(response),
-            title="[bold green]Response[/bold green]",
+            title=f"[bold green]Response - {resolved_ticker}[/bold green]",
             border_style="green",
         ))
+
+        # Display quality score and metrics
+        if quality_score is not None:
+            quality_color = "green" if quality_score >= settings.quality_threshold else "yellow"
+            console.print(f"\n[bold]Quality Score:[/bold] [{quality_color}]{quality_score:.1f}/10[/{quality_color}]", end="")
+
+            if regenerate_count > 0:
+                console.print(f" [dim](Regenerated {regenerate_count} time{'s' if regenerate_count > 1 else ''})[/dim]")
+            else:
+                console.print()
+
+            # Show detailed breakdown if available
+            if "ACCURACY:" in quality_feedback:
+                console.print("\n[dim]Quality Breakdown:[/dim]")
+                for line in quality_feedback.split("\n"):
+                    if any(metric in line for metric in ["ACCURACY:", "COMPLETENESS:", "CLARITY:", "ACTIONABILITY:", "PROFESSIONALISM:"]):
+                        console.print(f"  [dim]{line.strip()}[/dim]")
 
     except Exception as e:
         console.print(f"\n[red]Error processing question: {str(e)}[/red]")

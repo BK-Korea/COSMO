@@ -25,6 +25,52 @@ class FinancialQAGraph:
         # Cache for indexed tickers to avoid re-indexing
         self.indexed_tickers = set()
 
+    def resolve_ticker(self, state: FinancialQAState) -> Dict[str, Any]:
+        """Node: Resolve company name or ticker to ticker symbol using LLM"""
+        user_input = state.get("original_input") or state["ticker"]
+
+        # Check if it looks like a ticker (short, uppercase, no spaces)
+        if len(user_input) <= 5 and user_input.isupper() and ' ' not in user_input:
+            # Likely already a ticker
+            return {"ticker": user_input}
+
+        try:
+            # Use LLM to resolve company name to ticker
+            resolve_prompt = f"""You are a financial ticker symbol resolver.
+Given a company name or partial name, return ONLY the stock ticker symbol (e.g., AAPL, TSLA, NVDA).
+
+User input: "{user_input}"
+
+Rules:
+- If it's clearly a company name, return the ticker symbol
+- If it's already a ticker, return it as-is
+- Return ONLY the ticker symbol, nothing else
+- Examples:
+  - "Apple" -> AAPL
+  - "Tesla" -> TSLA
+  - "Archer Aviation" -> ACHR
+  - "Microsoft Corporation" -> MSFT
+  - "GOOGL" -> GOOGL
+
+Ticker symbol:"""
+
+            ticker_response = self.llm_client.simple_query(resolve_prompt).strip().upper()
+
+            # Extract ticker (remove any extra text)
+            ticker = ticker_response.split()[0] if ticker_response else user_input.upper()
+
+            # Remove any non-alphanumeric characters
+            ticker = ''.join(c for c in ticker if c.isalnum())
+
+            return {"ticker": ticker}
+
+        except Exception as e:
+            # Fallback: use input as-is
+            return {
+                "ticker": user_input.upper().replace(" ", ""),
+                "error": f"Ticker resolution warning: {str(e)}"
+            }
+
     def fetch_ticker_data(self, state: FinancialQAState) -> Dict[str, Any]:
         """Node: Fetch ticker data from Yahoo Finance"""
         ticker = state["ticker"]
@@ -175,35 +221,57 @@ Please provide a comprehensive answer based on the context above."""
             return {"response": f"Error generating response: {str(e)}"}
 
     def evaluate_quality(self, state: FinancialQAState) -> Dict[str, Any]:
-        """Node: Evaluate response quality (NOVA pattern)"""
+        """Node: Evaluate response quality at CEO reporting level (NOVA pattern)"""
         if state.get("error"):
             return {}
 
         response = state.get("response", "")
         query = state["query"]
+        ticker = state["ticker"]
+        context = state.get("context", "")
 
-        # Simple quality evaluation (can be enhanced with LLM-based scoring like NOVA)
-        evaluation_prompt = f"""Evaluate the quality of this financial analysis response on a scale of 0-10.
+        # CEO-level quality evaluation
+        evaluation_prompt = f"""You are evaluating a financial analysis report for C-level executives.
+Assess whether this response meets CEO reporting standards on a scale of 0-10.
 
+Company: {ticker}
 Question: {query}
 Response: {response}
 
-Provide a score (0-10) and brief feedback. Format:
-SCORE: [number]
-FEEDBACK: [your feedback]
+Available Context:
+{context[:500]}...
+
+Evaluation Criteria for CEO-Level Reports:
+1. **Accuracy** (0-2): Data correctness, no misleading claims
+2. **Completeness** (0-2): Answers the question fully, covers key aspects
+3. **Clarity** (0-2): Clear language, well-structured, no jargon without explanation
+4. **Actionability** (0-2): Provides insights executives can act on
+5. **Professionalism** (0-2): Appropriate tone, proper citations, executive-ready
+
+Provide detailed evaluation in this exact format:
+SCORE: [total score 0-10]
+ACCURACY: [score 0-2]
+COMPLETENESS: [score 0-2]
+CLARITY: [score 0-2]
+ACTIONABILITY: [score 0-2]
+PROFESSIONALISM: [score 0-2]
+FEEDBACK: [specific improvement suggestions if score < {settings.quality_threshold}]
 """
 
         try:
             evaluation = self.llm_client.simple_query(evaluation_prompt)
 
-            # Parse score (simplified)
-            score = 8.0  # Default score
+            # Parse score
+            score = 5.0  # Default score
             feedback = evaluation
 
             if "SCORE:" in evaluation:
                 try:
                     score_line = evaluation.split("SCORE:")[1].split("\n")[0].strip()
-                    score = float(score_line)
+                    # Extract just the number
+                    score_str = ''.join(c for c in score_line if c.isdigit() or c == '.')
+                    if score_str:
+                        score = float(score_str)
                 except:
                     pass
 
@@ -217,21 +285,75 @@ FEEDBACK: [your feedback]
                 "quality_feedback": f"Evaluation failed: {str(e)}",
             }
 
-    def should_return_response(self, state: FinancialQAState) -> str:
-        """Edge: Decide whether to return response based on quality"""
-        quality_score = state.get("quality_score", 0.0)
+    def regenerate_response(self, state: FinancialQAState) -> Dict[str, Any]:
+        """Node: Regenerate response with feedback (max 3 attempts)"""
+        query = state["query"]
+        context = state.get("context", "")
+        ticker = state["ticker"]
+        feedback = state.get("quality_feedback", "")
+        regenerate_count = state.get("regenerate_count", 0) + 1
 
+        system_prompt = f"""You are a financial analyst assistant specializing in stock market analysis.
+You have access to recent information about {ticker} including company data and news.
+
+Your task is to answer the user's question based on the provided context.
+This is attempt #{regenerate_count + 1}. Previous attempt was evaluated and found lacking.
+
+FEEDBACK FROM PREVIOUS ATTEMPT:
+{feedback}
+
+IMPORTANT: Address the feedback above and improve your response to meet CEO reporting standards:
+- Be accurate with data
+- Be complete in covering all aspects
+- Be clear and professional
+- Provide actionable insights
+"""
+
+        user_prompt = f"""Context:
+{context}
+
+Question: {query}
+
+Please provide an improved, CEO-level answer based on the context and feedback above."""
+
+        try:
+            response = self.llm_client.simple_query(
+                query=user_prompt,
+                system_prompt=system_prompt,
+            )
+
+            return {
+                "response": response,
+                "regenerate_count": regenerate_count,
+            }
+        except Exception as e:
+            return {
+                "response": f"Error generating response: {str(e)}",
+                "regenerate_count": regenerate_count,
+            }
+
+    def should_return_response(self, state: FinancialQAState) -> str:
+        """Edge: Decide whether to return response or regenerate (max 3 attempts)"""
+        quality_score = state.get("quality_score", 0.0)
+        regenerate_count = state.get("regenerate_count", 0)
+
+        # If quality is good enough, return
         if quality_score >= settings.quality_threshold:
             return "end"
-        else:
-            return "regenerate"
+
+        # If we've tried 3 times, give up and return
+        if regenerate_count >= 3:
+            return "end"
+
+        # Otherwise, regenerate
+        return "regenerate"
 
     def build_graph(self, skip_fetch_index: bool = False, enable_evaluation: bool = False) -> StateGraph:
         """Build the LangGraph workflow
 
         Args:
             skip_fetch_index: If True, skip fetch_data and index_data nodes (for cached queries)
-            enable_evaluation: If True, include quality evaluation step
+            enable_evaluation: If True, include quality evaluation step with regeneration loop
         """
         workflow = StateGraph(FinancialQAState)
 
@@ -244,40 +366,48 @@ FEEDBACK: [your feedback]
 
             if enable_evaluation:
                 workflow.add_node("evaluate", self.evaluate_quality)
+                workflow.add_node("regenerate", self.regenerate_response)
                 workflow.add_edge("generate", "evaluate")
                 workflow.add_conditional_edges(
                     "evaluate",
                     self.should_return_response,
                     {
                         "end": END,
-                        "regenerate": END,
+                        "regenerate": "regenerate",  # Loop back with feedback
                     },
                 )
+                # After regenerate, go back to evaluate
+                workflow.add_edge("regenerate", "evaluate")
             else:
                 workflow.add_edge("generate", END)
         else:
-            # Full path: fetch, index, retrieve, generate
+            # Full path: resolve ticker → fetch → index → retrieve → generate
+            workflow.add_node("resolve_ticker", self.resolve_ticker)
             workflow.add_node("fetch_data", self.fetch_ticker_data)
             workflow.add_node("index_data", self.index_ticker_data)
             workflow.add_node("retrieve", self.retrieve_context)
             workflow.add_node("generate", self.generate_response)
 
-            workflow.set_entry_point("fetch_data")
+            workflow.set_entry_point("resolve_ticker")
+            workflow.add_edge("resolve_ticker", "fetch_data")
             workflow.add_edge("fetch_data", "index_data")
             workflow.add_edge("index_data", "retrieve")
             workflow.add_edge("retrieve", "generate")
 
             if enable_evaluation:
                 workflow.add_node("evaluate", self.evaluate_quality)
+                workflow.add_node("regenerate", self.regenerate_response)
                 workflow.add_edge("generate", "evaluate")
                 workflow.add_conditional_edges(
                     "evaluate",
                     self.should_return_response,
                     {
                         "end": END,
-                        "regenerate": END,
+                        "regenerate": "regenerate",  # Loop back with feedback
                     },
                 )
+                # After regenerate, go back to evaluate
+                workflow.add_edge("regenerate", "evaluate")
             else:
                 workflow.add_edge("generate", END)
 
@@ -287,12 +417,14 @@ FEEDBACK: [your feedback]
         """Run the workflow
 
         Args:
-            ticker: Stock ticker symbol
+            ticker: Stock ticker symbol or company name (will be resolved)
             query: User question
-            enable_evaluation: If True, enable quality evaluation (adds ~2-5s)
+            enable_evaluation: If True, enable quality evaluation with regeneration (max 3 attempts)
         """
-        # Check if ticker is already indexed
-        skip_fetch_index = ticker in self.indexed_tickers
+        # Check if ticker is already indexed (only for resolved tickers)
+        # For first run with company name, we need to resolve it first
+        ticker_upper = ticker.upper()
+        skip_fetch_index = ticker_upper in self.indexed_tickers
 
         graph = self.build_graph(
             skip_fetch_index=skip_fetch_index,
@@ -300,7 +432,8 @@ FEEDBACK: [your feedback]
         )
 
         initial_state: FinancialQAState = {
-            "ticker": ticker,
+            "ticker": ticker,  # May be company name, will be resolved
+            "original_input": ticker,  # Keep original for resolution
             "query": query,
             "ticker_info": None,
             "historical_data": None,
@@ -309,6 +442,7 @@ FEEDBACK: [your feedback]
             "retrieved_documents": None,
             "context": None,
             "response": None,
+            "regenerate_count": 0,  # Initialize regeneration counter
             "quality_score": None,
             "quality_feedback": None,
             "error": None,
