@@ -344,7 +344,7 @@ Description: {ticker_info.get('description', 'N/A')}
                 holders_text = f"\n=== 주요 주주 ({ticker}) ===\n\n"
 
                 for idx, row in major_holders.iterrows():
-                    holders_text += f"{idx}: {row[0]}\n"
+                    holders_text += f"{idx}: {row.iloc[0]}\n"
 
                 documents.append(
                     Document(
