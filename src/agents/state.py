@@ -16,6 +16,10 @@ class FinancialQAState(TypedDict):
     historical_data: Optional[Any]
     financials: Optional[Dict[str, Any]]
     news: Optional[List[Dict[str, Any]]]
+    recommendations: Optional[Any]  # Analyst recommendations
+    major_holders: Optional[Any]  # Major shareholders
+    institutional_holders: Optional[Any]  # Institutional investors
+    insider_transactions: Optional[Any]  # Insider trading data
 
     # Vector store context
     retrieved_documents: Optional[List[Document]]

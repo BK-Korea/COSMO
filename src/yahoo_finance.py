@@ -107,14 +107,68 @@ class YahooFinanceService:
         except Exception as e:
             raise ValueError(f"Error fetching recommendations for {ticker}: {str(e)}")
 
-    def get_news(self, ticker: str) -> List[Dict[str, Any]]:
-        """Get recent news about the ticker"""
+    def get_news(self, ticker: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent news about the ticker
+
+        Args:
+            ticker: Stock ticker symbol
+            limit: Maximum number of news items to return (default: 10)
+
+        Returns:
+            List of news dictionaries with title, publisher, link, summary
+        """
         try:
             stock = yf.Ticker(ticker)
             news = stock.news
-            return news if news else []
+            # Limit to most recent news items
+            return news[:limit] if news else []
         except Exception as e:
             raise ValueError(f"Error fetching news for {ticker}: {str(e)}")
+
+    def get_major_holders(self, ticker: str) -> pd.DataFrame:
+        """Get major shareholders information
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            DataFrame with major holders information
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            return stock.major_holders
+        except Exception as e:
+            raise ValueError(f"Error fetching major holders for {ticker}: {str(e)}")
+
+    def get_institutional_holders(self, ticker: str) -> pd.DataFrame:
+        """Get institutional shareholders
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            DataFrame with institutional holders
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            return stock.institutional_holders
+        except Exception as e:
+            raise ValueError(f"Error fetching institutional holders for {ticker}: {str(e)}")
+
+    def get_insider_transactions(self, ticker: str) -> pd.DataFrame:
+        """Get insider trading transactions
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            DataFrame with insider transactions
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            return stock.insider_transactions
+        except Exception as e:
+            raise ValueError(f"Error fetching insider transactions for {ticker}: {str(e)}")
 
     def format_ticker_summary(self, ticker: str) -> str:
         """

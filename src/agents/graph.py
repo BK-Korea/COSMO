@@ -106,21 +106,52 @@ Ticker:"""
             # Fetch comprehensive ticker info
             ticker_info = self.yf_service.get_ticker_info(ticker)
             historical_data = self.yf_service.get_historical_data(ticker, period="1mo")
-            news = self.yf_service.get_news(ticker)
+            news = self.yf_service.get_news(ticker, limit=10)
 
             # Fetch financial statements (income statement, balance sheet, cash flow)
             try:
                 financials = self.yf_service.get_financials(ticker)
             except Exception as fin_error:
-                # Financials might not be available for all companies
                 financials = None
                 print(f"Warning: Could not fetch financials: {fin_error}")
+
+            # Fetch analyst recommendations
+            try:
+                recommendations = self.yf_service.get_recommendations(ticker)
+            except Exception as rec_error:
+                recommendations = None
+                print(f"Warning: Could not fetch recommendations: {rec_error}")
+
+            # Fetch major shareholders
+            try:
+                major_holders = self.yf_service.get_major_holders(ticker)
+            except Exception as holder_error:
+                major_holders = None
+                print(f"Warning: Could not fetch major holders: {holder_error}")
+
+            # Fetch institutional holders
+            try:
+                institutional_holders = self.yf_service.get_institutional_holders(ticker)
+            except Exception as inst_error:
+                institutional_holders = None
+                print(f"Warning: Could not fetch institutional holders: {inst_error}")
+
+            # Fetch insider transactions
+            try:
+                insider_transactions = self.yf_service.get_insider_transactions(ticker)
+            except Exception as insider_error:
+                insider_transactions = None
+                print(f"Warning: Could not fetch insider transactions: {insider_error}")
 
             return {
                 "ticker_info": ticker_info,
                 "historical_data": historical_data,
                 "news": news,
                 "financials": financials,
+                "recommendations": recommendations,
+                "major_holders": major_holders,
+                "institutional_holders": institutional_holders,
+                "insider_transactions": insider_transactions,
                 "error": None,
             }
         except Exception as e:
@@ -142,6 +173,10 @@ Ticker:"""
         ticker_info = state.get("ticker_info", {})
         news = state.get("news", [])
         financials = state.get("financials", {})
+        recommendations = state.get("recommendations")
+        major_holders = state.get("major_holders")
+        institutional_holders = state.get("institutional_holders")
+        insider_transactions = state.get("insider_transactions")
 
         try:
             documents = []
@@ -250,21 +285,123 @@ Description: {ticker_info.get('description', 'N/A')}
                         )
                     )
 
-            # Create documents from news
-            for i, article in enumerate(news[:10]):  # Limit to 10 most recent
-                news_text = f"""
-Title: {article.get('title', 'N/A')}
-Publisher: {article.get('publisher', 'N/A')}
-Summary: {article.get('summary', 'N/A')}
+            # Create documents from news (최신 뉴스 10개, 한글 포맷팅)
+            if news:
+                news_summary = f"\n=== 최신 뉴스 ({ticker}) ===\n\n"
+                for i, article in enumerate(news[:10], 1):
+                    title = article.get('title', 'N/A')
+                    publisher = article.get('publisher', 'N/A')
+                    link = article.get('link', '')
+                    summary = article.get('summary', 'N/A')
+
+                    news_summary += f"""
+뉴스 #{i}
+제목: {title}
+출처: {publisher}
+링크: {link}
+요약: {summary}
+---
 """
+
                 documents.append(
                     Document(
-                        page_content=news_text,
+                        page_content=news_summary,
                         metadata={
                             "ticker": ticker,
                             "type": "news",
-                            "link": article.get("link", ""),
                         },
+                    )
+                )
+
+            # Create document from analyst recommendations
+            if recommendations is not None and not recommendations.empty:
+                rec_text = f"\n=== 애널리스트 추천 ({ticker}) ===\n\n"
+
+                # Get most recent recommendations (last 10)
+                recent_recs = recommendations.tail(10)
+
+                for idx, row in recent_recs.iterrows():
+                    date = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+                    firm = row.get('Firm', 'N/A')
+                    to_grade = row.get('To Grade', 'N/A')
+                    from_grade = row.get('From Grade', '')
+                    action = row.get('Action', 'N/A')
+
+                    rec_text += f"날짜: {date}\n"
+                    rec_text += f"  증권사: {firm}\n"
+                    rec_text += f"  등급: {from_grade} → {to_grade}\n" if from_grade else f"  등급: {to_grade}\n"
+                    rec_text += f"  조치: {action}\n\n"
+
+                documents.append(
+                    Document(
+                        page_content=rec_text,
+                        metadata={"ticker": ticker, "type": "analyst_recommendations"},
+                    )
+                )
+
+            # Create document from major holders
+            if major_holders is not None and not major_holders.empty:
+                holders_text = f"\n=== 주요 주주 ({ticker}) ===\n\n"
+
+                for idx, row in major_holders.iterrows():
+                    holders_text += f"{idx}: {row[0]}\n"
+
+                documents.append(
+                    Document(
+                        page_content=holders_text,
+                        metadata={"ticker": ticker, "type": "major_holders"},
+                    )
+                )
+
+            # Create document from institutional holders
+            if institutional_holders is not None and not institutional_holders.empty:
+                inst_text = f"\n=== 기관 투자자 ({ticker}) ===\n\n"
+
+                # Top 10 institutional holders
+                for idx, row in institutional_holders.head(10).iterrows():
+                    holder = row.get('Holder', 'N/A')
+                    shares = row.get('Shares', 0)
+                    date_reported = row.get('Date Reported', 'N/A')
+                    pct_out = row.get('% Out', 0)
+                    value = row.get('Value', 0)
+
+                    inst_text += f"기관명: {holder}\n"
+                    inst_text += f"  보유주식수: {shares:,}\n"
+                    inst_text += f"  지분율: {pct_out:.2%}\n" if isinstance(pct_out, (int, float)) else f"  지분율: {pct_out}\n"
+                    inst_text += f"  가치: ${value:,}\n" if isinstance(value, (int, float)) else f"  가치: {value}\n"
+                    inst_text += f"  보고일: {date_reported}\n\n"
+
+                documents.append(
+                    Document(
+                        page_content=inst_text,
+                        metadata={"ticker": ticker, "type": "institutional_holders"},
+                    )
+                )
+
+            # Create document from insider transactions
+            if insider_transactions is not None and not insider_transactions.empty:
+                insider_text = f"\n=== 내부자 거래 ({ticker}) ===\n\n"
+
+                # Most recent 15 transactions
+                for idx, row in insider_transactions.head(15).iterrows():
+                    insider = row.get('Insider', 'N/A')
+                    relation = row.get('Relation', 'N/A')
+                    transaction = row.get('Transaction', 'N/A')
+                    shares = row.get('Shares', 0)
+                    value = row.get('Value', 0)
+                    date = row.get('Start Date', 'N/A')
+
+                    insider_text += f"날짜: {date}\n"
+                    insider_text += f"  내부자: {insider} ({relation})\n"
+                    insider_text += f"  거래유형: {transaction}\n"
+                    insider_text += f"  주식수: {shares:,}\n" if isinstance(shares, (int, float)) else f"  주식수: {shares}\n"
+                    insider_text += f"  거래금액: ${value:,}\n" if isinstance(value, (int, float)) else f"  거래금액: {value}\n"
+                    insider_text += f"\n"
+
+                documents.append(
+                    Document(
+                        page_content=insider_text,
+                        metadata={"ticker": ticker, "type": "insider_transactions"},
                     )
                 )
 
@@ -319,7 +456,7 @@ Summary: {article.get('summary', 'N/A')}
         ticker = state["ticker"]
 
         system_prompt = f"""당신은 주식 시장 분석을 전문으로 하는 금융 애널리스트 어시스턴트입니다.
-{ticker}에 대한 최신 정보(기업 데이터, 재무제표, 뉴스 등)에 접근할 수 있습니다.
+{ticker}에 대한 최신 정보(기업 데이터, 재무제표, 애널리스트 추천, 주주 정보, 내부자 거래, 뉴스 등)에 접근할 수 있습니다.
 
 당신의 임무는 제공된 컨텍스트를 기반으로 사용자의 질문에 답변하는 것입니다.
 
@@ -327,6 +464,8 @@ Summary: {article.get('summary', 'N/A')}
 - **반드시 한국어로 답변하세요**
 - 구체적이고 정확한 숫자와 데이터를 인용하세요
 - 출처가 있다면 명시하세요
+- **뉴스를 언급할 때는 반드시 원문 링크를 마크다운 형식으로 포함하세요** (예: [뉴스 제목](링크))
+- 애널리스트 추천, 주요 주주, 내부자 거래 정보가 있다면 적극 활용하세요
 - 경영진이 실행할 수 있는 인사이트를 제공하세요
 - 컨텍스트에 충분한 정보가 없다면 명확히 밝히세요
 - 표와 목록을 활용하여 가독성을 높이세요
@@ -573,6 +712,10 @@ FEEDBACK: [specific improvement suggestions in Korean if score < {settings.quali
             "historical_data": None,
             "financials": None,
             "news": None,
+            "recommendations": None,
+            "major_holders": None,
+            "institutional_holders": None,
+            "insider_transactions": None,
             "retrieved_documents": None,
             "context": None,
             "response": None,
